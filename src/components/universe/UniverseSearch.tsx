@@ -83,7 +83,7 @@ export function UniverseSearch() {
             onBlur={() => setTimeout(() => setOpen(false), 120)}
             placeholder="Search the universe"
             autoComplete="off"
-            className="text-ink placeholder:text-muted w-full bg-transparent py-2 text-sm outline-none"
+            className="text-ink placeholder:text-muted w-full bg-transparent py-2 text-base outline-none sm:text-sm"
           />
         </div>
         <div className="h-px" style={{ background: "var(--hairline-strong)" }} />

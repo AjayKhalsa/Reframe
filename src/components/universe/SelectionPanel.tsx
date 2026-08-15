@@ -38,7 +38,7 @@ export function SelectionPanel() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 6 }}
           transition={{ duration: 0.4, ease: EASE }}
-          className="pointer-events-auto fixed inset-x-5 bottom-24 text-left md:static md:inset-auto md:w-[15rem] md:text-right"
+          className="pointer-events-none fixed inset-x-5 bottom-24 text-left md:static md:inset-auto md:w-[15rem] md:text-right"
         >
           {/* A ground for the sheet, on mobile only.
               On a phone the panel sits over the middle of the map rather than
@@ -55,7 +55,7 @@ export function SelectionPanel() {
           />
           <Link
             href={`/movie/${node.id}`}
-            className="text-accent inline-block text-[0.6875rem] tracking-[0.16em] uppercase transition-opacity hover:opacity-70"
+            className="text-accent pointer-events-auto inline-block text-[0.6875rem] tracking-[0.16em] uppercase transition-opacity hover:opacity-70"
           >
             Enter film →
           </Link>
@@ -75,7 +75,7 @@ export function SelectionPanel() {
                         // Alignment has to follow the panel's own responsive
                         // switch, or the headings sit left while the list sits
                         // right.
-                        className="text-muted hover:text-ink w-full truncate text-left text-[0.8125rem] transition-colors md:text-right"
+                        className="text-muted hover:text-ink pointer-events-auto w-full truncate text-left text-[0.8125rem] transition-colors md:text-right"
                       >
                         {neighbour.t}
                       </button>
@@ -89,7 +89,7 @@ export function SelectionPanel() {
           <button
             type="button"
             onClick={() => select(null)}
-            className="text-muted/60 hover:text-ink mt-5 text-[0.5625rem] tracking-[0.16em] uppercase transition-colors"
+            className="text-muted/60 hover:text-ink pointer-events-auto mt-5 text-[0.5625rem] tracking-[0.16em] uppercase transition-colors"
           >
             Dismiss
           </button>
