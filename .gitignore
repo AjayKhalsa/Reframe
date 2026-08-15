@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Pipeline working files: the raw catalogue, embedding caches and vectors.
+# Large, regenerable, and not needed to run the app.
+#
+# The leading slash matters. Without it this pattern matches *any* directory
+# named `data`, including `src/lib/data/` — which holds the projected map the
+# application actually renders. That silently excluded the one file the build
+# depends on.
+/data/

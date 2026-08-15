@@ -1,26 +1,337 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------ *
+ * Two surfaces
+ *
+ * `void` is the universe: deep charcoal, off-white type, restrained
+ * accent, and no film colour at all. It is the ground the map is drawn
+ * on and it must never shift, or moving through the universe would feel
+ * like the room changing colour around you.
+ *
+ * `plate` is a single film: still dark, but tinted by that film's own
+ * artwork. Entering a movie should feel like the lights coming up on
+ * one image.
+ *
+ * Both define the SAME token names, so every component written against
+ * --bg / --text / --muted / --accent works on either surface with no
+ * changes. Switching surface is one attribute.
+ *
+ * The film's own colours arrive as --film-* (see paletteToCssVars) and
+ * are consumed here as fallbacks. That indirection is what confines the
+ * film's palette to the film's own page.
+ * ------------------------------------------------------------------ */
+
+/* Registering these as <color> is what makes a plate *morph* between
+   films rather than cutting. An unregistered custom property is just a
+   string to the browser, so `transition` on it does nothing. */
+@property --bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #08080a;
+}
+@property --surface {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #131316;
+}
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #c9a46a;
+}
+@property --muted {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #8a867f;
+}
+@property --text {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f0ede7;
+}
+
+:root,
+[data-surface="void"] {
+  /* Near-black rather than pure black: pure #000 makes the WebGL canvas
+     edge visible against the page and kills the sense of depth the
+     universe depends on. */
+  --bg: #08080a;
+  --surface: #131316;
+  --text: #f0ede7;
+  --muted: #8a867f;
+  /* Fixed. The universe never adopts a film's colour — only its own
+     pages do. */
+  --accent: #c9a46a;
+
+  --text-rgb: 240 237 231;
+  --bg-rgb: 8 8 10;
+
+  --hairline: rgb(var(--text-rgb) / 0.1);
+  --hairline-strong: rgb(var(--text-rgb) / 0.2);
+}
+
+[data-surface="plate"] {
+  --bg: var(--film-bg, #0b0a0c);
+  --surface: var(--film-surface, #17161a);
+  --text: var(--film-text, #f3f0ea);
+  --muted: var(--film-muted, #8c8781);
+  --accent: var(--film-accent, #c9a46a);
+
+  --text-rgb: var(--film-text-rgb, 243 240 234);
+  --bg-rgb: var(--film-bg-rgb, 11 10 12);
+
+  --hairline: rgb(var(--text-rgb) / 0.12);
+  --hairline-strong: rgb(var(--text-rgb) / 0.24);
+}
+
+/* A plate paints its own ground and morphs when the film changes. */
+[data-surface="plate"] {
+  background-color: var(--bg);
+  color: var(--text);
+  transition:
+    background-color var(--theme-morph) var(--ease),
+    color var(--theme-morph) var(--ease);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --radius-poster: 3px;
+  --radius-card: 4px;
+  --radius-pill: 999px;
+
+  /* One shared easing. Everything in the product moves the same way. */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --theme-morph: 700ms;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-accent: var(--accent);
+  --color-muted: var(--muted);
+  --color-ink: var(--text);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-display), ui-serif, Georgia, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ------------------------------------------------------------------ *
+ * Base
+ * ------------------------------------------------------------------ */
+
+/* The root carries the ground so overscroll and the browser chrome match
+   the page. Backdrops are now scoped inside their own plate rather than
+   being fixed behind everything, so there is no painting-order trap here
+   any more — an earlier version lost the backdrop entirely to an opaque
+   background on <body>. */
+html {
+  background-color: var(--bg);
+  color: var(--text);
+  transition:
+    background-color var(--theme-morph) var(--ease),
+    color var(--theme-morph) var(--ease);
+  /* Prevents iOS from inflating type in landscape, which wrecks the
+     editorial scale the whole design depends on. */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+}
+
+/* Light type on a dark ground renders heavy without this. Both surfaces
+   are dark, so both want it. */
+[data-surface="void"],
+[data-surface="plate"] {
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--accent);
+  color: var(--bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Scrollbars, restrained enough to disappear into the theme. */
+@supports selector(::-webkit-scrollbar) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--text-rgb) / 0.14);
+    border: 3px solid var(--bg);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--text-rgb) / 0.26);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Typography
+ * ------------------------------------------------------------------ */
+
+/* Editorial display type. Tight leading and a slight negative tracking —
+   at these sizes default leading reads as loose and unconsidered. */
+.font-display {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: 0.94;
+  letter-spacing: -0.02em;
+}
+
+/* The small caps label used above every section. Section headings are
+   the connective tissue of the whole layout, so they get one definition
+   rather than being re-specified per screen. */
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Metadata rows: year · genre · runtime. Tabular figures stop the
+   numbers jittering when a value changes on re-render. */
+.meta {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ *
+ * Grain
+ *
+ * One fixed overlay rather than a per-element texture: a single
+ * compositor layer, no repaint on scroll.
+ *
+ * Kept very faint. Over a WebGL canvas the grain is doing a real job —
+ * it hides the banding that large, near-black gradients produce on
+ * 8-bit displays, which is exactly where the universe lives.
+ * ------------------------------------------------------------------ */
+
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+}
+
+[data-surface="plate"].grain::after,
+[data-surface="plate"] .grain::after {
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+}
+
+/* ------------------------------------------------------------------ *
+ * Utilities
+ * ------------------------------------------------------------------ */
+
+/* The page measure and its gutter, defined together.
+   `.rail` reads --gutter to work out how far to bleed, so if the padding
+   and the token were declared separately they would eventually disagree
+   and every rail would sit a few pixels off. One rule, one source. */
+.app-frame {
+  --gutter: 1.25rem;
+  padding-inline: var(--gutter);
+}
+
+@media (min-width: 768px) {
+  .app-frame {
+    --gutter: 2rem;
+  }
+}
+
+/* Horizontal rails bleed to the viewport edge on mobile — a poster row
+   that stops at the gutter looks truncated rather than continuing. */
+.rail {
+  display: flex;
+  gap: 0.875rem;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding-inline: var(--gutter, 1.25rem);
+  margin-inline: calc(-1 * var(--gutter, 1.25rem));
+  /* Without this the snap origin sits at the padding edge, so the browser
+     immediately scrolls the rail by one gutter to snap the first card —
+     which reads as a row that is already scrolled the moment it renders. */
+  scroll-padding-inline: var(--gutter, 1.25rem);
+}
+.rail::-webkit-scrollbar {
+  display: none;
+}
+.rail > * {
+  scroll-snap-align: start;
+  flex: none;
+}
+
+/* Text sitting directly on a film still.
+   The scrim handles the general case, but backdrops vary wildly — a snow
+   scene or a white-walled interior will defeat any fixed gradient. A soft
+   shadow costs nothing on dark frames and rescues the bright ones, so the
+   reveal never depends on getting lucky with the still. */
+.on-film {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 2px 18px rgb(0 0 0 / 0.55);
+}
+
+.shimmer {
+  background: linear-gradient(
+    100deg,
+    rgb(var(--text-rgb) / 0.04) 30%,
+    rgb(var(--text-rgb) / 0.09) 50%,
+    rgb(var(--text-rgb) / 0.04) 70%
+  );
+  background-size: 220% 100%;
+  animation: shimmer 1.4s var(--ease) infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -220% 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Staggered entrance for revealed content. The recommendation is meant
+   to feel like something arriving, not a page that finished loading. */
+.rise {
+  animation: rise 620ms var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,36 +1,112 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Reframe
 
-## Getting Started
+**See cinema differently.**
 
-First, run the development server:
+A visual map of cinema where similar films live near each other. You find
+things by moving through it rather than by searching a database.
+
+Not a recommendation app with a graph on the homepage. **The map is the
+homepage** — it is the navigation and the discovery mechanism, and movie pages,
+search and taste all hang off it.
+
+## Running it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy `.env.example` to `.env.local` and add:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `TMDB_READ_TOKEN` — free at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)
+- `GEMINI_API_KEY` — free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Then build the universe and start:
 
-## Learn More
+```bash
+npm run universe
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+The app will tell you to run the pipeline if the map is missing — it is a build
+artefact, not something generated at runtime.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## The pipeline
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+TMDB ──▶ catalogue ──▶ embeddings ──▶ UMAP ──▶ x/y/z + neighbours
+```
 
-## Deploy on Vercel
+| Script | |
+| --- | --- |
+| `npm run ingest` | Crawl ~2,000 films. Resumable. |
+| `npm run embed` | Hybrid embeddings. Cached, resumable. |
+| `npm run project` | UMAP to 3D + nearest neighbours + clusters. |
+| `npm run universe` | All three in order. |
+| `npm run inspect` | **Is the map any good?** See below. |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+All three are offline. Nothing embeds or projects at request time.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Every stage is resumable and checkpoints as it goes, which is not defensive
+programming — TMDB drops roughly a quarter of connections from a cold pool, and
+the Gemini free tier has a daily ceiling. Both runs are *expected* to stop
+partway and be re-run.
+
+### Is the map any good?
+
+`npm run inspect` prints the neighbourhoods of a few probe films. This is the
+real test, and it is worth running before building anything on top of a new map:
+
+- **Good** — The Social Network sits near Moneyball, Steve Jobs, Whiplash.
+  Different genres, shared preoccupations: ambition, obsession, competition.
+- **Bad** — The Social Network sits near other 2010s dramas. The embedding has
+  rebuilt the genre taxonomy and no amount of rendering will rescue it.
+
+## Embeddings
+
+Two halves, blended 75/25 and L2-normalised:
+
+- **Semantic** (Gemini, 768d) reads the film as prose. This is what finds
+  thematic relationships, because they live in the overview and nowhere in the
+  metadata.
+- **Metadata** (local TF-IDF → random projection, 128d) knows categorical facts
+  — shared director above all — that text embeddings systematically underweight.
+
+Neither alone works. Semantic-only misses that two films share a director;
+metadata-only just redraws the genre chart.
+
+Semantic vectors are cached by content hash in `data/semantic-cache.json`, so
+re-running costs nothing and the free tier is ample. The metadata half is
+recomputed every run because TF-IDF weights depend on the whole corpus.
+
+## Architecture notes
+
+- **The canvas lives in the root layout, not the page.** This is the most
+  important structural decision here. A canvas inside the home page would be
+  torn down on every navigation — destroying the WebGL context, reloading
+  textures, resetting the camera. Films render as an overlay *above* it, so
+  returning from one is just the overlay leaving. That is what makes the
+  universe a place rather than a screen.
+- **Camera state lives in a ref in `UniverseProvider`**, above the router.
+  Sixty updates a second through React state would re-render the tree for a
+  value nothing renders.
+- **Coordinates and neighbours are different things.** Coordinates come from
+  UMAP and are a lossy picture. Neighbours are computed in the full embedding
+  space. Reading neighbours off the 3D positions would be cheaper and quietly
+  wrong — UMAP distorts distance, so films that merely landed near each other
+  would be presented as related.
+- **Two surfaces, one token set.** `void` is the universe: fixed charcoal, no
+  film colour ever. `plate` is a single film, tinted by its own artwork. Both
+  define the same CSS variables, so components work on either without changes.
+- **`<img>`, not `next/image`.** TMDB serves pre-sized derivatives from its own
+  CDN. The lint rule is off centrally, with the reason, in `eslint.config.mjs`.
+
+## State of things
+
+Built: the pipeline end to end, the 3D universe with level-of-detail rendering,
+search-as-travel, selection and neighbourhoods, the cinematic movie page, and
+the enter/return loop.
+
+Not built: Letterboxd import, My Cinema, taste territory, blind spots,
+pathfinding between films, comparison mode, 2D fallback, and anything social.
+`src/lib/mock/session.ts` stands in for a signed-in user and is the single file
+to delete when accounts land.
