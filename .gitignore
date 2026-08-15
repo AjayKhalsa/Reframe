@@ -47,3 +47,5 @@ next-env.d.ts
 # application actually renders. That silently excluded the one file the build
 # depends on.
 /data/
+
+.vercel
