@@ -78,6 +78,33 @@ Semantic vectors are cached by content hash in `data/semantic-cache.json`, so
 re-running costs nothing and the free tier is ample. The metadata half is
 recomputed every run because TF-IDF weights depend on the whole corpus.
 
+## Deploying
+
+The map is a **build artefact**, not something generated at runtime:
+`src/lib/data/universe.json` is committed and read at build time. So a deploy
+ships whatever map was last projected — run `npm run project` and commit before
+deploying if you want the newest one.
+
+Vercel, from the GitHub repo:
+
+```bash
+npx vercel --prod
+```
+
+Only one environment variable is needed on the server:
+
+| Variable | Why |
+| --- | --- |
+| `TMDB_READ_TOKEN` | Search, and fetching films that aren't in the local cache |
+
+`GEMINI_API_KEY` and `OPENAI_API_KEY` are **not** needed in production. They are
+used exclusively by the offline pipeline; nothing embeds at request time.
+
+Note that `/data` is gitignored — the raw catalogue and embedding caches stay
+local. Only the projected map ships. The gitignore pattern is `/data/` with a
+leading slash on purpose: without it, it also matches `src/lib/data/`, which is
+where the map lives, and the deployed app would have an empty universe.
+
 ## Architecture notes
 
 - **The canvas lives in the root layout, not the page.** This is the most
