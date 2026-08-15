@@ -190,15 +190,49 @@ async function main() {
     g: movie.genres.slice(0, 3),
   }));
 
+  /*
+   * Detail records for every mapped film.
+   *
+   * Without this the app knew about forty films and had to fetch the rest from
+   * TMDB on every page view — which made a cold movie page take eleven
+   * seconds, and, worse, turned a dropped connection into a 404 for a film
+   * that plainly exists. Every film reachable from the map is now on disk.
+   *
+   * Trimmed rather than a copy of the catalogue: keywords and vote counts feed
+   * the pipeline, not the page, and they are most of the weight.
+   */
+  const films = movies.map((movie) => ({
+    tmdbId: movie.tmdbId,
+    title: movie.title,
+    originalTitle: movie.originalTitle,
+    tagline: movie.tagline,
+    releaseDate: movie.releaseDate,
+    runtime: movie.runtime,
+    genres: movie.genres,
+    overview: movie.overview,
+    director: movie.director,
+    cast: movie.cast,
+    posterPath: movie.posterPath,
+    backdropPath: movie.backdropPath,
+    originalLanguage: movie.originalLanguage,
+    voteAverage: movie.voteAverage,
+    voteCount: movie.voteCount,
+    keywords: [] as string[],
+    palette: null,
+  }));
+
   await mkdir(OUT, { recursive: true });
   await writeFile(
     path.join(OUT, "universe.json"),
     JSON.stringify({ source: file.source, scale: UNIVERSE_SCALE, nodes }),
     "utf8",
   );
+  await writeFile(path.join(OUT, "films.json"), JSON.stringify(films), "utf8");
 
   const bytes = JSON.stringify(nodes).length;
-  console.log(`Wrote ${nodes.length} nodes (${(bytes / 1024).toFixed(0)} KB).`);
+  const filmBytes = JSON.stringify(films).length;
+  console.log(`Wrote ${nodes.length} nodes (${(bytes / 1024).toFixed(0)} KB)`);
+  console.log(`   plus detail records (${(filmBytes / 1024).toFixed(0)} KB, server-only).`);
 }
 
 main().catch((error) => {
