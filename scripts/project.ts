@@ -41,6 +41,15 @@ const NEIGHBOURS = 10;
 /** Half-extent of the universe in world units. */
 const UNIVERSE_SCALE = 100;
 
+/**
+ * How much of the previous map a new one must still contain.
+ *
+ * `ALLOW_SHRINK=1` turns the check off, for the rare run where a smaller map is
+ * the intention — a deliberately narrowed catalogue, or a model switch that
+ * invalidates every existing vector.
+ */
+const SHRINK_FLOOR = process.env.ALLOW_SHRINK === "1" ? 0 : 0.95;
+
 const DATA = path.join(process.cwd(), "data");
 const OUT = path.join(process.cwd(), "src", "lib", "data");
 
@@ -118,6 +127,43 @@ function nearestNeighbours(vectors: FilmVectors[], k: number): number[][] {
  * free.
  */
 
+/**
+ * A published map may never get smaller by accident.
+ *
+ * The embedding cache lives in `data/`, which is gitignored and therefore
+ * local. The projected map lives in `src/lib/data/`, which is committed. Those
+ * two facts are fine on one machine and dangerous anywhere else: a runner with
+ * an evicted cache re-embeds from an empty one, gets a day's worth of films,
+ * and projects a perfectly valid universe of nine hundred films straight over
+ * the six thousand already shipped. The pipeline succeeds, the commit looks
+ * routine, and the live map quietly loses most of cinema.
+ *
+ * So the previous map is treated as a floor. A little churn is legitimate —
+ * TMDB edits an overview, the content hash changes, that film drops out until
+ * the next run re-embeds it — so small dips pass with a warning and only a
+ * collapse stops the run.
+ */
+async function refuseToShrink(count: number) {
+  const previous = await readFile(path.join(OUT, "universe.json"), "utf8")
+    .then((raw) => (JSON.parse(raw) as { nodes: unknown[] }).nodes.length)
+    .catch(() => 0);
+
+  if (previous === 0 || count >= previous) return;
+
+  const lost = previous - count;
+  if (count >= previous * SHRINK_FLOOR) {
+    console.warn(`  ${lost} film(s) dropped out since the last run — re-embedding will restore them.\n`);
+    return;
+  }
+
+  throw new Error(
+    `Refusing to publish ${count} films over the ${previous} already mapped.\n` +
+      `This nearly always means the embedding cache in data/ was lost, not that the\n` +
+      `catalogue shrank. Restore the cache and re-run, or set ALLOW_SHRINK=1 if the\n` +
+      `smaller map is genuinely what you want.`,
+  );
+}
+
 async function main() {
   const catalogue = JSON.parse(
     await readFile(path.join(DATA, "catalogue.json"), "utf8"),
@@ -128,6 +174,8 @@ async function main() {
 
   const byId = new Map(catalogue.map((movie) => [movie.tmdbId, movie]));
   const movies = file.ids.map((id) => byId.get(id)).filter((m): m is Movie => Boolean(m));
+
+  await refuseToShrink(movies.length);
 
   const vectors: FilmVectors[] = file.ids.map((_, i) => ({
     story: Float64Array.from(file.semantic[i] ?? []),

@@ -12,6 +12,7 @@
 
 import type { Vector } from "./vector";
 import { l2Normalise } from "./vector";
+import { envNumber } from "./env";
 
 /**
  * Which embedding model to use.
@@ -41,12 +42,23 @@ export const GEMINI_DIMENSIONS = 768;
 /**
  * Films per request.
  *
- * Small deliberately. The free tier appears to bill each *content* in a batch
- * as a request rather than the batch as one, so a large batch is not the free
- * win it looks like — and a small batch means a rate-limit stall loses almost
- * nothing.
+ * Small deliberately, and the reason is an open question worth settling.
+ * `batchEmbedContents` accepts thousands of inputs per call, so if the daily
+ * allowance counted *requests* the whole catalogue would be three calls and a
+ * couple of minutes. Observed behaviour says otherwise: runs of twenty-film
+ * batches — well under fifty HTTP requests in a day — still walked into the
+ * daily wall, which only makes sense if each content in a batch is billed as
+ * its own request.
+ *
+ * That is an inference from behaviour, not something Google documents, and it
+ * is the single assumption holding the catalogue to a thousand films a day. So
+ * it is overridable: one run with `GEMINI_BATCH_SIZE=200` and a raised
+ * `GEMINI_DAILY_BUDGET` settles it for good. Sail past a thousand films and
+ * billing is per request and this constant should be two hundred; stall at a
+ * thousand and the inference was right. The cache persists per batch either
+ * way, so the experiment cannot lose work.
  */
-const BATCH_SIZE = 20;
+const BATCH_SIZE = envNumber("GEMINI_BATCH_SIZE", 20);
 
 /**
  * Throttle, in films per minute.
@@ -54,7 +66,7 @@ const BATCH_SIZE = 20;
  * Measured against contents rather than HTTP requests, for the reason above.
  * Overridable so a paid key can go faster without touching the code.
  */
-const FILMS_PER_MINUTE = Number(process.env.GEMINI_FILMS_PER_MINUTE ?? 80);
+const FILMS_PER_MINUTE = envNumber("GEMINI_FILMS_PER_MINUTE", 80);
 
 /** Consecutive failed batches before giving up on transient faults. */
 const GIVE_UP_AFTER = 4;
@@ -69,11 +81,64 @@ const GIVE_UP_AFTER = 4;
  *
  * Raise it on a paid key, where the limit is money rather than requests.
  */
-const DAILY_BUDGET = Number(process.env.GEMINI_DAILY_BUDGET ?? 950);
+const DAILY_BUDGET = envNumber("GEMINI_DAILY_BUDGET", 950);
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type BatchResponse = { embeddings: Array<{ values: number[] }> };
+
+/**
+ * The longest pause worth taking inside a run.
+ *
+ * A per-minute limit clears in under a minute, so anything much beyond that is
+ * a daily quota wearing a `retryDelay`, and sitting on it would idle the job
+ * for hours to no purpose.
+ */
+const MAX_WAIT_MS = 5 * 60_000;
+
+/**
+ * Which kind of 429 this is.
+ *
+ * Two limits share one status code and want opposite responses. A per-minute
+ * limit is a queue: wait the stated delay and the request succeeds. A per-day
+ * limit is a wall until midnight Pacific, and retrying it spends the very
+ * budget being waited for — the failure mode that once burned sixty requests
+ * against a thousand-a-day cap on a single batch.
+ *
+ * Google distinguishes them in the error body: a `QuotaFailure` detail carries
+ * a `quotaId` naming the window it belongs to, and a `RetryInfo` detail carries
+ * how long to wait. Returns the delay to sleep for a transient limit, or null
+ * for a daily one.
+ *
+ * Anything unrecognised returns null. Guessing "transient" on an unparseable
+ * body reintroduces exactly the retry-storm this exists to prevent, so the
+ * ambiguous case takes the conservative branch and stops.
+ */
+function transientRetryDelay(body: string): number | null {
+  let details: Array<Record<string, unknown>>;
+  try {
+    details = (JSON.parse(body) as { error?: { details?: Array<Record<string, unknown>> } })
+      .error?.details ?? [];
+  } catch {
+    return null;
+  }
+
+  const quotaIds = details
+    .flatMap((detail) => (detail.violations as Array<{ quotaId?: string }> | undefined) ?? [])
+    .map((violation) => violation.quotaId ?? "");
+
+  if (quotaIds.length === 0) return null;
+  // A daily violation anywhere in the list decides it, even alongside a
+  // per-minute one: the day's allowance is gone regardless of the minute's.
+  if (quotaIds.some((id) => /PerDay/i.test(id))) return null;
+  if (!quotaIds.some((id) => /PerMinute|PerSecond/i.test(id))) return null;
+
+  const retryInfo = details.find((detail) => typeof detail.retryDelay === "string");
+  const seconds = Number(String(retryInfo?.retryDelay ?? "").replace(/s$/, ""));
+  const delay = Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : 60_000;
+
+  return delay > MAX_WAIT_MS ? null : delay;
+}
 
 export function hasGeminiKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
@@ -92,13 +157,16 @@ async function embedBatch(texts: string[], apiKey: string): Promise<Vector[]> {
   };
 
   let lastError: unknown;
+  // How long to wait before the next attempt. Set by whatever failed, because
+  // only it knows: a per-minute quota states its own delay, a server fault just
+  // wants escalating tens of seconds.
+  let wait = 0;
+
   // Three, not six. The outer loop now tolerates failed batches, so this only
   // needs to ride out a brief blip — grinding through six escalating backoffs
   // per batch just made a genuinely exhausted quota take half an hour to detect.
   for (let attempt = 0; attempt < 3; attempt++) {
-    // A rate limit clears on a clock, so back off in whole tens of seconds
-    // rather than the sub-second retries that suit a dropped connection.
-    if (attempt > 0) await sleep(20_000 * attempt);
+    if (wait > 0) await sleep(wait);
 
     try {
       const res = await fetch(ENDPOINT, {
@@ -108,21 +176,29 @@ async function embedBatch(texts: string[], apiKey: string): Promise<Vector[]> {
       });
 
       /*
-       * A 429 is never retried.
+       * A 429 is retried only when it is the per-minute limit.
        *
-       * The free tier bills *per content*, not per request, so a twenty-film
-       * batch spends twenty of the thousand-a-day allowance — and every retry
-       * of a rejected batch spends twenty more. Retrying a quota error cannot
-       * succeed and actively destroys the budget it is waiting for. Only
-       * genuine server faults are worth another attempt.
+       * The daily allowance is billed per content, so a twenty-film batch
+       * spends twenty of it and every retry of a rejected batch spends twenty
+       * more — retrying cannot succeed and destroys the budget it is waiting
+       * for. The per-minute limit is the opposite: it clears in seconds, and
+       * treating it as fatal throws away the rest of a day's allowance over a
+       * pause. `transientRetryDelay` reads the error body to tell them apart
+       * and returns null for anything it cannot confidently call transient.
        */
       if (res.status === 429) {
-        throw new QuotaExhausted(
-          `Gemini quota: ${(await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`,
-        );
+        const reason = (await res.text().catch(() => "")).slice(0, 2_000);
+        const delay = transientRetryDelay(reason);
+        if (delay === null) {
+          throw new QuotaExhausted(`Gemini quota: ${reason.replace(/\s+/g, " ").slice(0, 200)}`);
+        }
+        wait = delay;
+        lastError = new RateLimited(`Gemini 429 (per-minute); waiting ${Math.round(delay / 1000)}s`);
+        continue;
       }
       if (res.status >= 500) {
         lastError = new RateLimited(`Gemini ${res.status}`);
+        wait = 20_000 * (attempt + 1);
         continue;
       }
       if (!res.ok) {
@@ -136,7 +212,21 @@ async function embedBatch(texts: string[], apiKey: string): Promise<Vector[]> {
         l2Normalise(Float64Array.from(embedding.values)),
       );
     } catch (error) {
+      /*
+       * The daily quota leaves immediately, without touching the retry budget.
+       *
+       * Without this the rule one comment up was defeated by its own catch: the
+       * `QuotaExhausted` thrown for a spent daily allowance landed here, became
+       * `lastError`, and the loop calmly re-sent the whole batch twice more
+       * before rethrowing it — three requests' worth of a per-content
+       * allowance spent proving the allowance was gone. The OpenAI provider
+       * always had this guard; the provider the rule was written for did not.
+       */
+      if (error instanceof QuotaExhausted) throw error;
       lastError = error;
+      // A dropped connection has no opinion about when to come back, so this
+      // is the one case that still wants a plain escalating backoff.
+      wait = 20_000 * (attempt + 1);
     }
   }
 

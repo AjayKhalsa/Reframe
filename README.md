@@ -1,6 +1,6 @@
 # Reframe
 
-**See cinema differently.**
+**A spatial map of cinema**
 
 A visual map of cinema where similar films live near each other. You find
 things by moving through it rather than by searching a database.
@@ -63,20 +63,77 @@ real test, and it is worth running before building anything on top of a new map:
 
 ## Embeddings
 
-Two halves, blended 75/25 and L2-normalised:
+Two halves, kept separate and combined at comparison time:
 
-- **Semantic** (Gemini, 768d) reads the film as prose. This is what finds
-  thematic relationships, because they live in the overview and nowhere in the
-  metadata.
+- **Story** (768d) reads the film as prose. This is what finds thematic
+  relationships, because they live in the overview and nowhere in the metadata.
 - **Metadata** (local TF-IDF → random projection, 128d) knows categorical facts
   — shared director above all — that text embeddings systematically underweight.
 
 Neither alone works. Semantic-only misses that two films share a director;
-metadata-only just redraws the genre chart.
+metadata-only just redraws the genre chart. They are weighted **0.9 / 0.1** in
+`src/lib/embed/similarity.ts`, applied when two films are compared rather than
+fused into one vector, so the ratio can be retuned and re-measured without
+re-embedding anything. That number came from `npm run evaluate`, not intuition.
 
-Semantic vectors are cached by content hash in `data/semantic-cache.json`, so
-re-running costs nothing and the free tier is ample. The metadata half is
-recomputed every run because TF-IDF weights depend on the whole corpus.
+Semantic vectors are cached by content hash in `data/semantic-cache.<model>.json`.
+The key includes the model because vectors from two models occupy unrelated
+spaces and must never be mixed. The metadata half is recomputed every run,
+because TF-IDF weights depend on the whole corpus.
+
+### Which model
+
+`EMBED_PROVIDER` picks one: `local`, `gemini` or `openai`. Unset, it takes the
+first provider it has a key for and falls back to `local`, which needs none.
+
+| | |
+| --- | --- |
+| `local` | An open model under ONNX. No key, no quota, no daily ceiling. |
+| `gemini` | Free tier, ~1,000 films/day, so a full catalogue takes days. |
+| `openai` | Batches properly, cents per catalogue, needs billing enabled. |
+
+The local provider is the only one with no rate limit, which changes what the
+embedding cache *is*: an optimisation rather than an irreplaceable asset. A
+cold cache costs minutes of CPU instead of a week of free-tier allowance.
+
+Model conventions are not cosmetic — BGE pools from the CLS token, E5 averages
+and requires a `query: ` prefix on every input. Get either wrong and the model
+returns confident, correctly-shaped, quietly worse vectors, which nothing
+downstream can detect. `conventionsFor` sets them per model family;
+`LOCAL_EMBED_POOLING` and `LOCAL_EMBED_PREFIX` override for anything unlisted.
+
+Set `LOCAL_EMBED_MODEL_PATH` to run with no network at all — weights are read
+from that directory and nothing is fetched.
+
+**Switching provider or model is a full re-embed**, always. Measure before
+committing to one: `npm run evaluate` reports recall@20 against the golden
+sets, which is the only basis on which this choice should be made.
+
+#### What the local models actually scored
+
+Measured over the 900 mapped films, recall@20 at pure story weighting:
+
+| Model | | |
+| --- | --- | --- |
+| `gemini-embedding-2` | 768d | **63.2%** |
+| `bge-base-en-v1.5` | 768d | 38.2% |
+| `bge-small-en-v1.5` | 384d | 36.8% |
+| `multilingual-e5-large` | 1024d | 34.7% |
+| metadata only | 128d | 11.1% |
+
+Two things worth keeping. **Size did not help** — e5-large is five times the
+parameters of bge-base and scored below it, so "use a bigger local model" is a
+dead end rather than an untried idea. And the three local models cluster inside
+four points of each other across two families and three dimensionalities, which
+looks much more like a shared ceiling than a bad model pick.
+
+The comparison carries one caveat that has to be stated. The local runs
+embedded documents built from `films.json`, where `keywords` is empty, so they
+lack the `Themes: …` line `semanticDocument()` normally appends — while the
+Gemini figure was measured with it. That handicaps every local row, and not
+evenly: "heist", "time loop" and "dystopia" are TMDB keywords, and those are
+exactly the concepts that scored worst. Re-run the comparison against the real
+catalogue before treating the gap as settled.
 
 ## Deploying
 
@@ -104,6 +161,60 @@ Note that `/data` is gitignored — the raw catalogue and embedding caches stay
 local. Only the projected map ships. The gitignore pattern is `/data/` with a
 leading slash on purpose: without it, it also matches `src/lib/data/`, which is
 where the map lives, and the deployed app would have an empty universe.
+
+## Keeping the map current
+
+`.github/workflows/daily-map.yml` runs the whole pipeline once a day, commits
+`src/lib/data/` if anything changed, and lets the push trigger a Vercel deploy.
+It exists because the free embedding tier has a daily ceiling — a full
+catalogue is not one long run, it is a run a day for as many days as it takes.
+
+It needs `TMDB_READ_TOKEN` as a **repository secret** (Settings → Secrets and
+variables → Actions), which is a different place from Vercel's environment
+variables — ingest cannot run without it. `GEMINI_API_KEY` is required only
+when embedding with Gemini. The workflow writes both to `.env.local` on the
+runner, because that is what the scripts already read.
+
+Which provider the scheduled run uses comes from the `EMBED_PROVIDER`
+repository *variable*, defaulting to `gemini`. Set it to `local` and the job
+needs no embedding key at all and has no daily ceiling — the whole catalogue
+finishes in one run. A `workflow_dispatch` run can override it for one run
+without changing the default, which is the cheap way to try the other provider.
+Everything here runs on free tiers: Actions is unmetered on public repositories,
+and the map deploys on Vercel's.
+
+Two things about it are load-bearing:
+
+**The cache is the valuable part.** `data/` is gitignored and therefore absent
+on a fresh runner, so the embedding cache is carried between runs by
+`actions/cache`. Every vector in it is a slice of an allowance that cannot be
+bought back — losing it means re-embedding at a thousand films a day.
+
+**A lost cache must not shrink the live map.** If the cache is evicted, the
+embedder starts from nothing, gets one day's films, and projects a completely
+valid universe of a few hundred over the thousands already shipped. `project`
+therefore refuses to publish a map materially smaller than the committed one
+(`ALLOW_SHRINK=1` overrides, for the rare run where that is the intention).
+
+**One model per map.** The workflow deliberately does not receive
+`OPENAI_API_KEY`. Splitting a catalogue across two embedding models to collect
+two free allowances does not work: vectors from different models occupy
+unrelated spaces, and the cosine similarity between a Gemini vector and an
+OpenAI one is not slightly wrong, it is meaningless.
+
+This is about the *model*, not the vendor, so it applies just as much to two
+Gemini models. `gemini-embedding-2` and `embedding-001` have separate quota
+pools, and reaching for the second one when the first is spent is the obvious
+move — but it does not top the map up, it starts a new one. A thousand films in
+each of two models is not two thousand films on a map; it is two thousand-film
+maps that cannot see each other. Switching models is a full re-embed of the
+catalogue and costs as many days as the catalogue is thousands of films.
+
+The escape hatch is `GEMINI_MODEL`, and the cache is keyed by model name so a
+switch can never blend two spaces by accident and switching back keeps the
+earlier model's work. Note that `text-multilingual-embedding-002` is a Vertex
+AI model — it is not reachable from the Gemini API with an API key, and needs a
+GCP project and service-account credentials instead.
 
 ## Architecture notes
 
