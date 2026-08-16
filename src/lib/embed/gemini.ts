@@ -40,25 +40,31 @@ const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMI
 export const GEMINI_DIMENSIONS = 768;
 
 /**
+ * The API's own ceiling, measured against it rather than assumed.
+ *
+ * A run at 200 came back `400 INVALID_ARGUMENT: at most 100 requests can be in
+ * one batch`. Clamped rather than merely documented, because the failure is a
+ * hard error that aborts the run after the catalogue has already been ingested
+ * — an expensive way to be told a number.
+ */
+const MAX_BATCH_SIZE = 100;
+
+/**
  * Films per request.
  *
  * Small deliberately, and the reason is an open question worth settling.
- * `batchEmbedContents` accepts thousands of inputs per call, so if the daily
- * allowance counted *requests* the whole catalogue would be three calls and a
- * couple of minutes. Observed behaviour says otherwise: runs of twenty-film
- * batches — well under fifty HTTP requests in a day — still walked into the
- * daily wall, which only makes sense if each content in a batch is billed as
- * its own request.
+ * Whether the daily allowance counts *requests* or *contents* is nowhere in
+ * Google's documentation, and it is the single assumption holding the catalogue
+ * to a thousand films a day. If it counts requests, the whole catalogue is 61
+ * calls at the maximum batch size and finishes in one run.
  *
- * That is an inference from behaviour, not something Google documents, and it
- * is the single assumption holding the catalogue to a thousand films a day. So
- * it is overridable: one run with `GEMINI_BATCH_SIZE=200` and a raised
- * `GEMINI_DAILY_BUDGET` settles it for good. Sail past a thousand films and
- * billing is per request and this constant should be two hundred; stall at a
- * thousand and the inference was right. The cache persists per batch either
- * way, so the experiment cannot lose work.
+ * Observed behaviour says contents: twenty-film batches meant roughly fifty
+ * HTTP requests in a day, which cannot exhaust a thousand-request allowance,
+ * and yet the daily wall arrived. Raising this to `MAX_BATCH_SIZE` with a
+ * raised `GEMINI_DAILY_BUDGET` is the clean test — the cache persists per
+ * batch, so it cannot lose work either way.
  */
-const BATCH_SIZE = envNumber("GEMINI_BATCH_SIZE", 20);
+const BATCH_SIZE = Math.min(envNumber("GEMINI_BATCH_SIZE", 20), MAX_BATCH_SIZE);
 
 /**
  * Throttle, in films per minute.
@@ -202,7 +208,7 @@ async function embedBatch(texts: string[], apiKey: string): Promise<Vector[]> {
         continue;
       }
       if (!res.ok) {
-        throw new Error(`Gemini ${res.status}: ${await res.text().catch(() => "")}`);
+        throw new PermanentError(`Gemini ${res.status}: ${await res.text().catch(() => "")}`);
       }
 
       const json = (await res.json()) as BatchResponse;
@@ -222,7 +228,7 @@ async function embedBatch(texts: string[], apiKey: string): Promise<Vector[]> {
        * allowance spent proving the allowance was gone. The OpenAI provider
        * always had this guard; the provider the rule was written for did not.
        */
-      if (error instanceof QuotaExhausted) throw error;
+      if (error instanceof QuotaExhausted || error instanceof PermanentError) throw error;
       lastError = error;
       // A dropped connection has no opinion about when to come back, so this
       // is the one case that still wants a plain escalating backoff.
@@ -235,6 +241,19 @@ async function embedBatch(texts: string[], apiKey: string): Promise<Vector[]> {
 
 /** A transient server fault. Worth another attempt. */
 export class RateLimited extends Error {}
+
+/**
+ * A request the server will reject identically every time. Never retried.
+ *
+ * The generic catch below exists for dropped connections, which deserve a
+ * retry. It was swallowing permanent rejections too: a malformed request came
+ * back `400 INVALID_ARGUMENT`, was stored as `lastError`, and re-sent twice
+ * more on a twenty- then forty-second backoff. A minute spent asking a server
+ * to change its mind about a request it will never accept — and in CI, a minute
+ * on top of the four already spent ingesting the catalogue that the failure
+ * then discarded.
+ */
+export class PermanentError extends Error {}
 
 /**
  * The daily allowance is gone.
