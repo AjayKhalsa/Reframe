@@ -169,10 +169,19 @@ where the map lives, and the deployed app would have an empty universe.
 It exists because the free embedding tier has a daily ceiling — a full
 catalogue is not one long run, it is a run a day for as many days as it takes.
 
-It needs `TMDB_READ_TOKEN` and `GEMINI_API_KEY` as **repository secrets**
-(Settings → Secrets and variables → Actions), which is a different place from
-Vercel's environment variables. The workflow writes them to `.env.local` on the
+It needs `TMDB_READ_TOKEN` as a **repository secret** (Settings → Secrets and
+variables → Actions), which is a different place from Vercel's environment
+variables — ingest cannot run without it. `GEMINI_API_KEY` is required only
+when embedding with Gemini. The workflow writes both to `.env.local` on the
 runner, because that is what the scripts already read.
+
+Which provider the scheduled run uses comes from the `EMBED_PROVIDER`
+repository *variable*, defaulting to `gemini`. Set it to `local` and the job
+needs no embedding key at all and has no daily ceiling — the whole catalogue
+finishes in one run. A `workflow_dispatch` run can override it for one run
+without changing the default, which is the cheap way to try the other provider.
+Everything here runs on free tiers: Actions is unmetered on public repositories,
+and the map deploys on Vercel's.
 
 Two things about it are load-bearing:
 

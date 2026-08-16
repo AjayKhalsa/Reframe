@@ -42,6 +42,15 @@ export const LOCAL_MODEL = process.env.LOCAL_EMBED_MODEL ?? "Xenova/bge-small-en
 const MODEL_PATH = process.env.LOCAL_EMBED_MODEL_PATH;
 
 /**
+ * Where downloaded weights are kept.
+ *
+ * Defaults to somewhere inside `node_modules`, which a CI runner deletes and
+ * recreates on every `npm ci` — so without this the model is re-downloaded
+ * every run. Pointing it somewhere stable makes it cacheable.
+ */
+const CACHE_DIR = process.env.LOCAL_EMBED_CACHE_DIR;
+
+/**
  * Per-model conventions, which are not cosmetic.
  *
  * Embedding models are trained with a specific pooling strategy and, in some
@@ -107,6 +116,8 @@ let extractor: Promise<Extractor> | null = null;
 function load(): Promise<Extractor> {
   extractor ??= (async () => {
     const { env, pipeline } = await import("@huggingface/transformers");
+
+    if (CACHE_DIR) env.cacheDir = CACHE_DIR;
 
     if (MODEL_PATH) {
       // Local weights are not a cache to fall back from: if they are wrong or

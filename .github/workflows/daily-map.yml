@@ -24,6 +24,27 @@ on:
         description: "Skip the TMDB crawl and only embed what is already catalogued"
         type: boolean
         default: false
+      provider:
+        description: "Embedding provider for this run"
+        type: choice
+        options: [default, gemini, local]
+        default: default
+
+env:
+  # Which model builds the map. `local` needs no key and has no daily ceiling,
+  # so the job can run on an empty budget; `gemini` is higher quality but caps
+  # at roughly a thousand films a day.
+  #
+  # Set the repository variable EMBED_PROVIDER to change the scheduled default
+  # without editing this file. Switching it re-embeds the whole catalogue from
+  # scratch — two models' vectors cannot share a map — so the first run after a
+  # change is a long one, and on Gemini it is several days of long ones.
+  EMBED_PROVIDER: >-
+    ${{ inputs.provider != null && inputs.provider != 'default'
+        && inputs.provider
+        || (vars.EMBED_PROVIDER || 'gemini') }}
+  # Outside node_modules, which `npm ci` deletes, so the weights can be cached.
+  LOCAL_EMBED_CACHE_DIR: .model-cache
 
 # A run can take a while and the next one must never start on top of it: two
 # jobs sharing one embedding budget would spend it twice on the same films.
@@ -65,8 +86,16 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ] || [ -z "$TMDB_READ_TOKEN" ]; then
-            echo "::error::TMDB_READ_TOKEN and GEMINI_API_KEY must be set as repository secrets."
+          if [ -z "$TMDB_READ_TOKEN" ]; then
+            echo "::error::TMDB_READ_TOKEN must be set as a repository secret — ingest needs it."
+            exit 1
+          fi
+          # Only the hosted providers need a key. The point of `local` is that
+          # the job runs with nothing bought and nothing rationed, so demanding
+          # a key it will never read would defeat it.
+          if [ "$EMBED_PROVIDER" != "local" ] && [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::EMBED_PROVIDER is '$EMBED_PROVIDER' but GEMINI_API_KEY is not set."
+            echo "::error::Add the secret, or set the EMBED_PROVIDER variable to 'local'."
             exit 1
           fi
           {
@@ -74,6 +103,7 @@ jobs:
             echo "TMDB_API_KEY=$TMDB_API_KEY"
             echo "GEMINI_API_KEY=$GEMINI_API_KEY"
           } > .env.local
+          echo "Embedding with: $EMBED_PROVIDER"
 
       # The embedding cache is the only thing here that cost anything to make —
       # every vector in it is a slice of a daily free-tier allowance that cannot
@@ -90,6 +120,15 @@ jobs:
             data/semantic-cache.*.json
           key: reframe-pipeline-${{ github.run_id }}
           restore-keys: reframe-pipeline-
+
+      # Model weights, when running locally. Keyed by provider and model so a
+      # switch fetches the new one rather than silently reusing the old.
+      - name: Restore model weights
+        if: ${{ env.EMBED_PROVIDER == 'local' }}
+        uses: actions/cache@v4
+        with:
+          path: .model-cache
+          key: reframe-model-${{ vars.LOCAL_EMBED_MODEL || 'default' }}
 
       # Cheap, and the only way new releases ever reach the map: the crawl only
       # fetches details for ids it does not already hold.
