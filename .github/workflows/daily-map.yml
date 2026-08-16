@@ -29,6 +29,14 @@ on:
         type: choice
         options: [default, gemini, local]
         default: default
+      gemini_batch_size:
+        description: "Films per Gemini request. Raise to test whether the daily cap counts requests or contents"
+        type: string
+        default: ""
+      gemini_daily_budget:
+        description: "Films to embed before stopping. Raise alongside batch size for that test"
+        type: string
+        default: ""
 
 env:
   # Which model builds the map. `local` needs no key and has no daily ceiling,
@@ -136,7 +144,16 @@ jobs:
         if: ${{ inputs.skip_ingest != true }}
         run: npm run ingest
 
+      # The batch-size knob is here so the one experiment that could end the
+      # daily ceiling can be run from the Actions tab rather than from someone's
+      # laptop. Whether the free tier bills requests or contents is an inference,
+      # not documented — and it is the sole reason a catalogue takes days. One
+      # dispatch with the batch size raised settles it, and settles it while
+      # doing the real work, since every film embedded on the way counts.
       - name: Embed
+        env:
+          GEMINI_BATCH_SIZE: ${{ inputs.gemini_batch_size }}
+          GEMINI_DAILY_BUDGET: ${{ inputs.gemini_daily_budget }}
         run: npm run embed
 
       # Refuses to publish a map materially smaller than the committed one, so a

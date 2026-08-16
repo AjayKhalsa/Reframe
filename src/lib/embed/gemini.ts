@@ -12,6 +12,7 @@
 
 import type { Vector } from "./vector";
 import { l2Normalise } from "./vector";
+import { envNumber } from "./env";
 
 /**
  * Which embedding model to use.
@@ -57,7 +58,7 @@ export const GEMINI_DIMENSIONS = 768;
  * thousand and the inference was right. The cache persists per batch either
  * way, so the experiment cannot lose work.
  */
-const BATCH_SIZE = Number(process.env.GEMINI_BATCH_SIZE ?? 20);
+const BATCH_SIZE = envNumber("GEMINI_BATCH_SIZE", 20);
 
 /**
  * Throttle, in films per minute.
@@ -65,7 +66,7 @@ const BATCH_SIZE = Number(process.env.GEMINI_BATCH_SIZE ?? 20);
  * Measured against contents rather than HTTP requests, for the reason above.
  * Overridable so a paid key can go faster without touching the code.
  */
-const FILMS_PER_MINUTE = Number(process.env.GEMINI_FILMS_PER_MINUTE ?? 80);
+const FILMS_PER_MINUTE = envNumber("GEMINI_FILMS_PER_MINUTE", 80);
 
 /** Consecutive failed batches before giving up on transient faults. */
 const GIVE_UP_AFTER = 4;
@@ -80,7 +81,7 @@ const GIVE_UP_AFTER = 4;
  *
  * Raise it on a paid key, where the limit is money rather than requests.
  */
-const DAILY_BUDGET = Number(process.env.GEMINI_DAILY_BUDGET ?? 950);
+const DAILY_BUDGET = envNumber("GEMINI_DAILY_BUDGET", 950);
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

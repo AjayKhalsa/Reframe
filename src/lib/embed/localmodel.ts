@@ -15,6 +15,7 @@
 
 import type { Vector } from "./vector";
 import { l2Normalise } from "./vector";
+import { envNumber } from "./env";
 
 /**
  * Which model.
@@ -83,7 +84,7 @@ const PREFIX = process.env.LOCAL_EMBED_PREFIX ?? conventionsFor(LOCAL_MODEL).pre
  * than for a quota: every document in a batch is padded to the longest one in
  * it, so an oversized batch spends most of its time multiplying padding.
  */
-const BATCH_SIZE = Number(process.env.LOCAL_EMBED_BATCH_SIZE ?? 32);
+const BATCH_SIZE = envNumber("LOCAL_EMBED_BATCH_SIZE", 32);
 
 /**
  * How much of a film is read.
