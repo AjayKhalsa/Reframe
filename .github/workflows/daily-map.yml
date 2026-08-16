@@ -120,8 +120,15 @@ jobs:
       #
       # `data/vectors.json` is deliberately not cached: it is rebuilt from the
       # cache on every run, and it is the largest file in the directory.
+      #
+      # Restore and save are split, and the save runs on failure too. The
+      # combined action only saves when the job succeeds, which quietly undid
+      # the property the whole pipeline is built around: every stage checkpoints
+      # as it goes precisely because runs are *expected* to stop partway. A run
+      # that ingested six thousand films and then died on the first embed batch
+      # threw all six thousand away and started from nothing the next morning.
       - name: Restore pipeline cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             data/catalogue.json
@@ -168,6 +175,17 @@ jobs:
       - name: Evaluate
         continue-on-error: true
         run: npm run evaluate
+
+      # Before the commit, and unconditionally: whatever was embedded is worth
+      # keeping even when a later stage fails, and especially then.
+      - name: Save pipeline cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/catalogue.json
+            data/semantic-cache.*.json
+          key: reframe-pipeline-${{ github.run_id }}
 
       - name: Commit the new map
         run: |
