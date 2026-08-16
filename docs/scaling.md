@@ -23,13 +23,26 @@ Measured over the 900-film map:
 root layout, so it blocks every route, not just the map. 5 MB is already a poor
 first paint on mobile; 21 MB is not a website.
 
-It is also the easiest to fix, because most of it is not map data. Of the 219
-bytes per node, **27% is the neighbour list** — ten TMDB ids per film that the
-map never draws. They exist for the rail on a film's page, which is a different
-request entirely. Another 16% is poster paths and 14% genre names. Moving
-neighbours server-side and encoding coordinates as typed arrays rather than
-JSON decimals gets a node under 90 bytes without losing anything the renderer
-uses.
+Of the 219 bytes per node, **27% is the neighbour list** — ten TMDB ids per
+film. Another 16% is poster paths and 14% genre names.
+
+The neighbour list is the interesting quarter, but not for the obvious reason.
+The map does use it: `Labels` pins the selected film's five nearest so its
+neighbourhood is legible, `SelectionPanel` lists four, and `NearbyFilms` shows
+ten on a film's page. What none of them do is use *more than one film's
+neighbours at a time*. The payload ships n×10 ids to serve a lookup that is
+only ever performed against the one film the viewer has selected.
+
+So the saving is real but it is not a deletion — it is fetching a film's
+neighbours when it is selected. That carries a cost this codebase has
+deliberately paid before: `ReturnControls` exists so a returning viewer's
+neighbourhood is *already lit* rather than appearing a beat later, and moving
+neighbours behind a request reintroduces exactly that beat. Prefetching on
+hover, or shipping neighbours only for the few hundred highest-vote films that
+are plausible first selections, both avoid it.
+
+Encoding coordinates as typed arrays rather than JSON decimals is the part with
+no tradeoff at all.
 
 **2. `films.json`, around 25,000 films.** It is server-only, which sounds safe,
 but Next bundles it into the serverless function — 54 MB of JSON parsed on cold
@@ -53,13 +66,13 @@ of individual films.
 
 ## Phases
 
-**Phase 0 — finish what exists (6,028 films).** No structural change needed.
-Nothing on this list binds yet. `universe.json` at 1.3 MB is acceptable; trim
-the neighbour list out of it anyway, because it is a twenty-minute change that
-buys a quarter of the payload back.
+**Phase 0 — finish what exists (6,028 films).** No structural change needed,
+and none worth making. Nothing on this list binds at 1.3 MB. Spending the
+interaction latency described above to save a megabyte nobody is waiting on
+would be paying a real cost for a hypothetical one.
 
-**Phase 1 — to ~25,000 films.** Neighbours out of the client payload.
-Coordinates as typed arrays. `films.json` becomes SQLite/Turso or per-film
+**Phase 1 — to ~25,000 films.** Coordinates as typed arrays first, since that
+one is free. Then neighbours on demand, with prefetching to cover the beat. `films.json` becomes SQLite/Turso or per-film
 static records. HNSW replaces exact kNN. The pipeline still commits a slim
 binary artefact, which still deploys on push.
 
