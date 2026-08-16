@@ -64,7 +64,18 @@ const MAX_BATCH_SIZE = 100;
  * raised `GEMINI_DAILY_BUDGET` is the clean test — the cache persists per
  * batch, so it cannot lose work either way.
  */
-const BATCH_SIZE = Math.min(envNumber("GEMINI_BATCH_SIZE", 20), MAX_BATCH_SIZE);
+const requestedBatchSize = envNumber("GEMINI_BATCH_SIZE", 20);
+const BATCH_SIZE = Math.min(requestedBatchSize, MAX_BATCH_SIZE);
+
+// Said out loud, because the alternative is a silent clamp: someone asks for
+// 200, watches a run behave differently from what they typed, and has nothing
+// in the log connecting the two.
+if (requestedBatchSize > MAX_BATCH_SIZE) {
+  console.warn(
+    `  GEMINI_BATCH_SIZE=${requestedBatchSize} is above the API maximum of ` +
+      `${MAX_BATCH_SIZE}; using ${MAX_BATCH_SIZE}.`,
+  );
+}
 
 /**
  * Throttle, in films per minute.
