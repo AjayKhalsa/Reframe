@@ -1,6 +1,6 @@
 # Reframe
 
-**See cinema differently.**
+**A spatial map of cinema**
 
 A visual map of cinema where similar films live near each other. You find
 things by moving through it rather than by searching a database.
@@ -104,6 +104,39 @@ Note that `/data` is gitignored — the raw catalogue and embedding caches stay
 local. Only the projected map ships. The gitignore pattern is `/data/` with a
 leading slash on purpose: without it, it also matches `src/lib/data/`, which is
 where the map lives, and the deployed app would have an empty universe.
+
+## Keeping the map current
+
+`.github/workflows/daily-map.yml` runs the whole pipeline once a day, commits
+`src/lib/data/` if anything changed, and lets the push trigger a Vercel deploy.
+It exists because the free embedding tier has a daily ceiling — a full
+catalogue is not one long run, it is a run a day for as many days as it takes.
+
+It needs `TMDB_READ_TOKEN` and `GEMINI_API_KEY` as **repository secrets**
+(Settings → Secrets and variables → Actions), which is a different place from
+Vercel's environment variables. The workflow writes them to `.env.local` on the
+runner, because that is what the scripts already read.
+
+Two things about it are load-bearing:
+
+**The cache is the valuable part.** `data/` is gitignored and therefore absent
+on a fresh runner, so the embedding cache is carried between runs by
+`actions/cache`. Every vector in it is a slice of an allowance that cannot be
+bought back — losing it means re-embedding at a thousand films a day.
+
+**A lost cache must not shrink the live map.** If the cache is evicted, the
+embedder starts from nothing, gets one day's films, and projects a completely
+valid universe of a few hundred over the thousands already shipped. `project`
+therefore refuses to publish a map materially smaller than the committed one
+(`ALLOW_SHRINK=1` overrides, for the rare run where that is the intention).
+
+**One provider per map.** The workflow deliberately does not receive
+`OPENAI_API_KEY`. Splitting a catalogue across two embedding providers to get
+two free allowances does not work: vectors from different models occupy
+unrelated spaces, and the cosine similarity between a Gemini vector and an
+OpenAI one is not slightly wrong, it is meaningless. Every film on one map must
+come from the same model, so changing provider means re-embedding all of them —
+a deliberate act, not something a nightly job should drift into.
 
 ## Architecture notes
 

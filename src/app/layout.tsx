@@ -23,12 +23,12 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Reframe — See cinema differently",
-  description: "A visual map of cinema where similar films live near each other.",
+  title: "Reframe — A spatial map of cinema",
+  description: "A spatial map of cinema where similar films live near each other.",
   applicationName: "Reframe",
   openGraph: {
     title: "Reframe",
-    description: "A visual map of cinema where similar films live near each other.",
+    description: "A spatial map of cinema where similar films live near each other.",
     siteName: "Reframe",
     type: "website",
   },

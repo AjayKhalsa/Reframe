@@ -49,7 +49,7 @@ export default async function HomePage() {
           {/* The tagline earns its place on the opening screen: without it a
               first-time visitor sees a coloured field and no explanation of
               what they are looking at. */}
-          <p className="text-muted mt-1.5 text-[0.8125rem]">See cinema differently.</p>
+          <p className="text-muted mt-1.5 text-[0.8125rem]">A spatial map of cinema</p>
           <p className="meta mt-0.5">
             {universe.nodes.length.toLocaleString()} films
             {universe.source === "metadata-only" && " · metadata map"}
@@ -91,7 +91,7 @@ function NotBuiltYet() {
       <h1 className="font-display text-ink text-[2.5rem] tracking-[0.02em] uppercase">
         Reframe
       </h1>
-      <p className="text-muted mt-3 text-sm">See cinema differently.</p>
+      <p className="text-muted mt-3 text-sm">A spatial map of cinema</p>
       <p className="text-muted mt-6 max-w-sm text-sm leading-relaxed">
         The map hasn&rsquo;t been built yet. Run the pipeline to ingest films, embed
         them and project them into space:
