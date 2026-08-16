@@ -130,13 +130,25 @@ valid universe of a few hundred over the thousands already shipped. `project`
 therefore refuses to publish a map materially smaller than the committed one
 (`ALLOW_SHRINK=1` overrides, for the rare run where that is the intention).
 
-**One provider per map.** The workflow deliberately does not receive
-`OPENAI_API_KEY`. Splitting a catalogue across two embedding providers to get
+**One model per map.** The workflow deliberately does not receive
+`OPENAI_API_KEY`. Splitting a catalogue across two embedding models to collect
 two free allowances does not work: vectors from different models occupy
 unrelated spaces, and the cosine similarity between a Gemini vector and an
-OpenAI one is not slightly wrong, it is meaningless. Every film on one map must
-come from the same model, so changing provider means re-embedding all of them —
-a deliberate act, not something a nightly job should drift into.
+OpenAI one is not slightly wrong, it is meaningless.
+
+This is about the *model*, not the vendor, so it applies just as much to two
+Gemini models. `gemini-embedding-2` and `embedding-001` have separate quota
+pools, and reaching for the second one when the first is spent is the obvious
+move — but it does not top the map up, it starts a new one. A thousand films in
+each of two models is not two thousand films on a map; it is two thousand-film
+maps that cannot see each other. Switching models is a full re-embed of the
+catalogue and costs as many days as the catalogue is thousands of films.
+
+The escape hatch is `GEMINI_MODEL`, and the cache is keyed by model name so a
+switch can never blend two spaces by accident and switching back keeps the
+earlier model's work. Note that `text-multilingual-embedding-002` is a Vertex
+AI model — it is not reachable from the Gemini API with an API key, and needs a
+GCP project and service-account credentials instead.
 
 ## Architecture notes
 
