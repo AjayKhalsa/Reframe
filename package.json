@@ -29,6 +29,7 @@
     "undici": "^8.10.0"
   },
   "devDependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -42,4 +43,3 @@
     "typescript": "^5"
   }
 }
-

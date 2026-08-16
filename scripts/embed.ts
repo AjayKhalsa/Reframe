@@ -23,6 +23,7 @@ import { contentHash, semanticDocument } from "../src/lib/embed/document";
 import { embedLocal } from "../src/lib/embed/local";
 import { embedSemantic, GEMINI_MODEL, hasGeminiKey } from "../src/lib/embed/gemini";
 import { embedSemanticOpenAi, hasOpenAiKey } from "../src/lib/embed/openai";
+import { embedSemanticLocal, LOCAL_MODEL } from "../src/lib/embed/localmodel";
 import { l2Normalise, type Vector } from "../src/lib/embed/vector";
 import type { Movie } from "../src/lib/types";
 
@@ -42,15 +43,33 @@ const VECTORS_PATH = path.join(DATA, "vectors.json");
 /**
  * Provider selection.
  *
- * OpenAI when a key is present, because it batches — six thousand films in
- * minutes rather than the six days Gemini's per-film free-tier accounting
- * imposes. Gemini otherwise.
+ * `EMBED_PROVIDER` decides when it is set, because which model built a map is
+ * the single most consequential thing about it and inferring that from which
+ * keys happen to be in the environment is how a map ends up built by accident.
+ *
+ * Failing that: OpenAI if a key is present, because it batches — six thousand
+ * films in minutes rather than the six days Gemini's per-film free-tier
+ * accounting imposes. Then Gemini. Then the local model, which needs no key
+ * and is why there is no longer a "none".
+ *
+ * That last fallback used to be metadata-only, which built a map this project
+ * exists to argue against — clustered by genre, recall barely above chance.
+ * Running a small open model on the machine that is already sitting there is
+ * strictly better than shipping a map we know is bad.
  */
-const provider: "openai" | "gemini" | "none" = hasOpenAiKey()
-  ? "openai"
-  : hasGeminiKey()
-    ? "gemini"
-    : "none";
+const requested = process.env.EMBED_PROVIDER;
+const provider: "openai" | "gemini" | "local" =
+  requested === "openai" || requested === "gemini" || requested === "local"
+    ? requested
+    : hasOpenAiKey()
+      ? "openai"
+      : hasGeminiKey()
+        ? "gemini"
+        : "local";
+
+if (requested && requested !== provider) {
+  throw new Error(`EMBED_PROVIDER must be one of openai, gemini, local — got "${requested}".`);
+}
 
 /**
  * Caches are keyed by the exact model, and never mixed.
@@ -64,7 +83,12 @@ const provider: "openai" | "gemini" | "none" = hasOpenAiKey()
  *
  * It also means switching back costs nothing: each model's work is preserved.
  */
-const modelKey = provider === "openai" ? "openai-3-small" : GEMINI_MODEL;
+const modelKey =
+  provider === "openai"
+    ? "openai-3-small"
+    : provider === "local"
+      ? LOCAL_MODEL.replace(/\//g, "-")
+      : GEMINI_MODEL;
 const CACHE_PATH = path.join(DATA, `semantic-cache.${modelKey}.json`);
 
 /** The original cache, from before the split. Always gemini-embedding-001. */
@@ -129,10 +153,7 @@ async function main() {
   // day's quota, so there is a way to say "use only what is already cached".
   const noFetch = process.env.EMBED_NO_FETCH === "1";
 
-  if (provider === "none") {
-    console.log("No embedding key set — building from the metadata half alone.");
-    console.log("That map clusters by genre. Add OPENAI_API_KEY or GEMINI_API_KEY.\n");
-  } else if (noFetch) {
+  if (noFetch) {
     console.log(`EMBED_NO_FETCH — using the ${Object.keys(cache).length} cached vectors as-is.\n`);
     semantic = hashes.map((hash) =>
       cache[hash] ? l2Normalise(Float64Array.from(cache[hash])) : null,
@@ -164,7 +185,9 @@ async function main() {
       let { exhausted, completed } =
         provider === "openai"
           ? await embedSemanticOpenAi(documents, persist(CACHE_PATH), progress)
-          : await embedSemantic(documents, persist(CACHE_PATH), progress);
+          : provider === "local"
+            ? await embedSemanticLocal(documents, persist(CACHE_PATH), progress)
+            : await embedSemantic(documents, persist(CACHE_PATH), progress);
 
       /*
        * Fall back to Gemini if OpenAI turns out to be unfunded.

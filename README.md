@@ -63,20 +63,51 @@ real test, and it is worth running before building anything on top of a new map:
 
 ## Embeddings
 
-Two halves, blended 75/25 and L2-normalised:
+Two halves, kept separate and combined at comparison time:
 
-- **Semantic** (Gemini, 768d) reads the film as prose. This is what finds
-  thematic relationships, because they live in the overview and nowhere in the
-  metadata.
+- **Story** (768d) reads the film as prose. This is what finds thematic
+  relationships, because they live in the overview and nowhere in the metadata.
 - **Metadata** (local TF-IDF → random projection, 128d) knows categorical facts
   — shared director above all — that text embeddings systematically underweight.
 
 Neither alone works. Semantic-only misses that two films share a director;
-metadata-only just redraws the genre chart.
+metadata-only just redraws the genre chart. They are weighted **0.9 / 0.1** in
+`src/lib/embed/similarity.ts`, applied when two films are compared rather than
+fused into one vector, so the ratio can be retuned and re-measured without
+re-embedding anything. That number came from `npm run evaluate`, not intuition.
 
-Semantic vectors are cached by content hash in `data/semantic-cache.json`, so
-re-running costs nothing and the free tier is ample. The metadata half is
-recomputed every run because TF-IDF weights depend on the whole corpus.
+Semantic vectors are cached by content hash in `data/semantic-cache.<model>.json`.
+The key includes the model because vectors from two models occupy unrelated
+spaces and must never be mixed. The metadata half is recomputed every run,
+because TF-IDF weights depend on the whole corpus.
+
+### Which model
+
+`EMBED_PROVIDER` picks one: `local`, `gemini` or `openai`. Unset, it takes the
+first provider it has a key for and falls back to `local`, which needs none.
+
+| | |
+| --- | --- |
+| `local` | An open model under ONNX. No key, no quota, no daily ceiling. |
+| `gemini` | Free tier, ~1,000 films/day, so a full catalogue takes days. |
+| `openai` | Batches properly, cents per catalogue, needs billing enabled. |
+
+The local provider is the only one with no rate limit, which changes what the
+embedding cache *is*: an optimisation rather than an irreplaceable asset. A
+cold cache costs minutes of CPU instead of a week of free-tier allowance.
+
+Model conventions are not cosmetic — BGE pools from the CLS token, E5 averages
+and requires a `query: ` prefix on every input. Get either wrong and the model
+returns confident, correctly-shaped, quietly worse vectors, which nothing
+downstream can detect. `conventionsFor` sets them per model family;
+`LOCAL_EMBED_POOLING` and `LOCAL_EMBED_PREFIX` override for anything unlisted.
+
+Set `LOCAL_EMBED_MODEL_PATH` to run with no network at all — weights are read
+from that directory and nothing is fetched.
+
+**Switching provider or model is a full re-embed**, always. Measure before
+committing to one: `npm run evaluate` reports recall@20 against the golden
+sets, which is the only basis on which this choice should be made.
 
 ## Deploying
 
