@@ -109,6 +109,32 @@ from that directory and nothing is fetched.
 committing to one: `npm run evaluate` reports recall@20 against the golden
 sets, which is the only basis on which this choice should be made.
 
+#### What the local models actually scored
+
+Measured over the 900 mapped films, recall@20 at pure story weighting:
+
+| Model | | |
+| --- | --- | --- |
+| `gemini-embedding-2` | 768d | **63.2%** |
+| `bge-base-en-v1.5` | 768d | 38.2% |
+| `bge-small-en-v1.5` | 384d | 36.8% |
+| `multilingual-e5-large` | 1024d | 34.7% |
+| metadata only | 128d | 11.1% |
+
+Two things worth keeping. **Size did not help** — e5-large is five times the
+parameters of bge-base and scored below it, so "use a bigger local model" is a
+dead end rather than an untried idea. And the three local models cluster inside
+four points of each other across two families and three dimensionalities, which
+looks much more like a shared ceiling than a bad model pick.
+
+The comparison carries one caveat that has to be stated. The local runs
+embedded documents built from `films.json`, where `keywords` is empty, so they
+lack the `Themes: …` line `semanticDocument()` normally appends — while the
+Gemini figure was measured with it. That handicaps every local row, and not
+evenly: "heist", "time loop" and "dystopia" are TMDB keywords, and those are
+exactly the concepts that scored worst. Re-run the comparison against the real
+catalogue before treating the gap as settled.
+
 ## Deploying
 
 The map is a **build artefact**, not something generated at runtime:
