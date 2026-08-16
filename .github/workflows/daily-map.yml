@@ -180,6 +180,11 @@ jobs:
       # keeping even when a later stage fails, and especially then.
       - name: Save pipeline cache
         if: always()
+        # A cache is an optimisation and must never be the thing that fails a
+        # build. `github.run_id` is stable across re-runs of the same run, so a
+        # re-run of a successful job would otherwise hit a duplicate key here
+        # and turn a green run red at the last step.
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: |
