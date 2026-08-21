@@ -34,10 +34,12 @@ const POSTER_HEIGHT = 6.2;
 const POSTER_ASPECT = 2 / 3;
 
 /** The selected film is the anchor of the composition and is materially larger. */
-const SELECTED_SCALE = 2.4;
+const SELECTED_SCALE = 2.15;
+const MOBILE_SELECTED_SCALE = 1.9;
 
 /** How many posters may exist at once. Desktop; halved on coarse pointers. */
-const BUDGET = 80;
+const DESKTOP_BUDGET = 56;
+const MOBILE_BUDGET = 24;
 
 /** Beyond this a poster is smaller than a few pixels and not worth a texture. */
 const VISIBLE_WITHIN = 300;
@@ -53,7 +55,9 @@ export function PosterField({ onEnter }: { onEnter: (id: number) => void }) {
   const lastRun = useRef(0);
 
   // Mobile GPUs and smaller screens do not want eighty textured quads.
-  const budget = size.width < 768 ? Math.round(BUDGET * 0.45) : BUDGET;
+  const isMobile = size.width < 768;
+  const budget = isMobile ? MOBILE_BUDGET : DESKTOP_BUDGET;
+  const selectedScale = isMobile ? MOBILE_SELECTED_SCALE : SELECTED_SCALE;
 
   const positions = useMemo(
     () => new Map(universe.nodes.map((n) => [n.id, new THREE.Vector3(n.x, n.yy, n.z)])),
@@ -110,7 +114,7 @@ export function PosterField({ onEnter }: { onEnter: (id: number) => void }) {
       // Half-height in NDC units: world half-height over the view half-height
       // at that depth. Selected films are scaled up and claim proportionally
       // more room.
-      const scale = candidate.node.id === selectedId ? SELECTED_SCALE : 1;
+      const scale = candidate.node.id === selectedId ? selectedScale : 1;
       const radius =
         ((POSTER_HEIGHT / 2) * scale) / (candidate.distance * Math.tan(halfFov));
 
@@ -152,6 +156,7 @@ export function PosterField({ onEnter }: { onEnter: (id: number) => void }) {
           node={node}
           selected={node.id === selectedId}
           dimmed={selectedId !== null && node.id !== selectedId}
+          selectedScale={selectedScale}
           onEnter={onEnter}
         />
       ))}
@@ -163,11 +168,13 @@ function Poster({
   node,
   selected,
   dimmed,
+  selectedScale,
   onEnter,
 }: {
   node: UniverseNode;
   selected: boolean;
   dimmed: boolean;
+  selectedScale: number;
   onEnter: (id: number) => void;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -197,7 +204,7 @@ function Poster({
     // the viewer without the roll that `lookAt` introduces when orbiting.
     mesh.quaternion.copy(state.camera.quaternion);
 
-    const targetScale = selected ? SELECTED_SCALE : hovered ? 1.25 : 1;
+    const targetScale = selected ? selectedScale : hovered ? 1.15 : 1;
     const scale = THREE.MathUtils.damp(mesh.scale.x, targetScale, 6, delta);
     mesh.scale.setScalar(scale);
 
@@ -205,7 +212,7 @@ function Poster({
     // budget shifts is the single most distracting thing in a moving field.
     const distance = state.camera.position.distanceTo(mesh.position);
     const far = 1 - THREE.MathUtils.smoothstep(distance, VISIBLE_WITHIN * 0.55, VISIBLE_WITHIN);
-    const target = (selected ? 1 : dimmed ? 0.45 : 0.9) * far;
+    const target = (selected ? 1 : dimmed ? 0.22 : hovered ? 0.88 : 0.72) * far;
     material.opacity = THREE.MathUtils.damp(material.opacity, target, 5, delta);
   });
 

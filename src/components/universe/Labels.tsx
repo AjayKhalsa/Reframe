@@ -40,7 +40,7 @@ const SILENT_BEYOND = 165;
 const LANDMARKS_BEYOND = 95;
 /** Budgets per tier. Small on purpose. */
 const MAX_LANDMARKS = 4;
-const MAX_NEAR = 9;
+const MAX_NEAR = 7;
 
 /**
  * Minimum separation between labels, in projected units.
@@ -65,7 +65,7 @@ const REFRESH_MS = 130;
 
 export function Labels({ onEnter }: { onEnter: (id: number) => void }) {
   const { universe, selectedId, select, byId } = useUniverse();
-  const { camera } = useThree();
+  const { camera, size } = useThree();
 
   const [labels, setLabels] = useState<UniverseNode[]>([]);
   const lastRun = useRef(0);
@@ -120,7 +120,7 @@ export function Labels({ onEnter }: { onEnter: (id: number) => void }) {
       const selected = byId.get(selectedId);
       if (selected) {
         pinned.push(selected);
-        for (const id of selected.n.slice(0, 5)) {
+        for (const id of selected.n.slice(0, 4)) {
           const neighbour = byId.get(id);
           if (neighbour) pinned.push(neighbour);
         }
@@ -186,15 +186,22 @@ export function Labels({ onEnter }: { onEnter: (id: number) => void }) {
 
   return (
     <>
-      {labels.map((node) => (
-        <Label
-          key={node.id}
-          node={node}
-          selected={node.id === selectedId}
-          dimmed={selectedId !== null && node.id !== selectedId}
-          onSelect={() => (node.id === selectedId ? onEnter(node.id) : select(node.id))}
-        />
-      ))}
+      {labels.map((node) => {
+        // The mobile information sheet already names the selected film. A
+        // second title floating beneath the poster only creates a ghosted,
+        // duplicate line behind that sheet.
+        if (size.width < 768 && node.id === selectedId) return null;
+
+        return (
+          <Label
+            key={node.id}
+            node={node}
+            selected={node.id === selectedId}
+            dimmed={selectedId !== null && node.id !== selectedId}
+            onSelect={() => (node.id === selectedId ? onEnter(node.id) : select(node.id))}
+          />
+        );
+      })}
     </>
   );
 }

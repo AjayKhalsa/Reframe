@@ -68,10 +68,10 @@ const vertexShader = /* glsl */ `
     // The floor is high because the catalogue disappearing into the atmosphere
     // is as wrong as a starfield — the colour has to look like it is *made of*
     // films.
-    float presence = 0.72 + 0.28 * (1.0 - smoothstep(50.0, 210.0, distance));
+    float presence = 0.56 + 0.30 * (1.0 - smoothstep(50.0, 210.0, distance));
 
     // When something is selected, unrelated films step back further.
-    float dim = mix(1.0, 0.18 + aEmphasis * 0.82, uDimming);
+    float dim = mix(1.0, 0.10 + aEmphasis * 0.90, uDimming);
 
     // Emphasised films are exempt from the general quieting, or the selected
     // neighbourhood would disappear along with everything else.
@@ -101,7 +101,7 @@ const fragmentShader = /* glsl */ `
     float core = vEmphasis > 0.9 ? (1.0 - smoothstep(0.0, 0.14, length(offset))) : 0.0;
 
     vec3 colour = mix(vColor, vec3(1.0), core * 0.9);
-    float alpha = clamp(sprite * 1.6 + core, 0.0, 1.0) * vAlpha;
+    float alpha = clamp(sprite * 1.3 + core, 0.0, 1.0) * vAlpha;
 
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(colour, alpha);

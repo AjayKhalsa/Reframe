@@ -42,16 +42,16 @@ import { useUniverse } from "./UniverseProvider";
  * region, so the colour is clearly made *of* films rather than painted behind
  * them.
  */
-const BROAD_SIZE = 120;
-const LOCAL_SIZE = 46;
+const BROAD_SIZE = 108;
+const LOCAL_SIZE = 42;
 
 /** Peak opacity per sprite. They stack in the hundreds, so these stay low. */
-const BROAD_OPACITY = 0.062;
-const LOCAL_OPACITY = 0.24;
+const BROAD_OPACITY = 0.046;
+const LOCAL_OPACITY = 0.18;
 
 /** On-screen size ceilings, so approaching a field concentrates it rather than thinning it. */
-const BROAD_MAX_PIXELS = 760;
-const LOCAL_MAX_PIXELS = 200;
+const BROAD_MAX_PIXELS = 680;
+const LOCAL_MAX_PIXELS = 170;
 
 const vertexShader = /* glsl */ `
   attribute float aSize;
@@ -115,8 +115,10 @@ const fragmentShader = /* glsl */ `
     float alpha = texture2D(uSprite, gl_PointCoord).a * vOpacity;
     if (alpha < 0.002) discard;
 
-    // Premultiplied, because the screen blend below expects it.
-    gl_FragColor = vec4(vColor * alpha, 1.0);
+    // Premultiplied, because the screen blend below expects it. Preserve the
+    // soft alpha too: writing 1.0 here made every field's transparent fringe
+    // an opaque black disc when the WebGL canvas was composited over the page.
+    gl_FragColor = vec4(vColor * alpha, alpha);
   }
 `;
 
@@ -230,7 +232,7 @@ export function Aura() {
     // neighbourhood reads clearly against a calmer background.
     const dimming = materialRef.current?.uniforms.uDimming;
     if (dimming) {
-      const target = selectedId === null ? 1 : 0.55;
+      const target = selectedId === null ? 1 : 0.4;
       dimming.value = THREE.MathUtils.damp(dimming.value, target, 3, delta);
     }
   });

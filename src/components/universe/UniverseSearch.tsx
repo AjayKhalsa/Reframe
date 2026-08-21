@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { useUniverse } from "./UniverseProvider";
 
@@ -21,8 +21,28 @@ export function UniverseSearch() {
   const { universe, flyTo } = useUniverse();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Ranking 2,000 titles per keystroke is fast but not free; deferring keeps
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+
+      if (event.key === "Escape" && document.activeElement === inputRef.current) {
+        setQuery("");
+        setOpen(false);
+        inputRef.current?.blur();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Ranking the catalogue per keystroke is fast but not free; deferring keeps
   // the input itself responsive while the list catches up.
   const deferred = useDeferredValue(query);
 
@@ -53,12 +73,14 @@ export function UniverseSearch() {
     flyTo(id);
     setQuery("");
     setOpen(false);
+    inputRef.current?.blur();
   };
 
   return (
-    <div className="relative w-full max-w-sm">
+    <div className="relative h-full w-full">
       <form
         role="search"
+        className="h-full"
         onSubmit={(event) => {
           event.preventDefault();
           if (results[0]) go(results[0].id);
@@ -67,11 +89,20 @@ export function UniverseSearch() {
         <label className="sr-only" htmlFor="universe-search">
           Search the universe
         </label>
-        <div className="flex items-center gap-2.5">
-          <span className="text-muted text-sm" aria-hidden>
-            ⌕
-          </span>
+        <div className="flex h-full min-h-12 items-center gap-3 px-4 sm:px-5">
+          <svg
+            viewBox="0 0 20 20"
+            className="text-muted h-4 w-4 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            aria-hidden
+          >
+            <circle cx="8.5" cy="8.5" r="5.5" />
+            <path d="m12.5 12.5 4 4" />
+          </svg>
           <input
+            ref={inputRef}
             id="universe-search"
             type="search"
             value={query}
@@ -81,34 +112,39 @@ export function UniverseSearch() {
             }}
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 120)}
-            placeholder="Search the universe"
+            placeholder="Find a film in the universe"
             autoComplete="off"
-            className="text-ink placeholder:text-muted w-full bg-transparent py-2 text-base outline-none sm:text-sm"
+            className="text-ink placeholder:text-muted min-w-0 flex-1 bg-transparent py-3 text-base outline-none sm:text-sm"
           />
+          <span
+            className="text-muted hidden shrink-0 border border-[var(--hairline)] px-2 py-1 text-[0.5625rem] tracking-[0.08em] uppercase sm:block"
+            aria-hidden
+          >
+            Ctrl K
+          </span>
         </div>
-        <div className="h-px" style={{ background: "var(--hairline-strong)" }} />
       </form>
 
       {open && results.length > 0 && (
         <ul
-          className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden"
-          style={{
-            background: "rgb(var(--bg-rgb) / 0.92)",
-            backdropFilter: "blur(16px)",
-            border: "1px solid var(--hairline)",
-            borderRadius: "var(--radius-card)",
-          }}
+          className="void-panel absolute inset-x-0 top-full z-30 mt-2 overflow-hidden"
         >
-          {results.map((node) => (
+          {results.map((node, index) => (
             <li key={node.id}>
               <button
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => go(node.id)}
-                className="hover:bg-[rgb(var(--text-rgb)/0.06)] flex w-full items-baseline justify-between gap-4 px-3.5 py-2.5 text-left transition-colors"
+                className="group hover:bg-[rgb(var(--text-rgb)/0.06)] flex min-h-12 w-full items-center gap-3 border-b border-[var(--hairline)] px-4 text-left transition-colors last:border-b-0"
               >
-                <span className="text-ink truncate text-sm">{node.t}</span>
+                <span className="text-muted shrink-0 text-[0.5625rem] tabular-nums">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <span className="text-ink min-w-0 flex-1 truncate text-sm">{node.t}</span>
                 <span className="meta shrink-0">{node.y ?? ""}</span>
+                <span className="text-muted transition-transform group-hover:translate-x-0.5" aria-hidden>
+                  →
+                </span>
               </button>
             </li>
           ))}

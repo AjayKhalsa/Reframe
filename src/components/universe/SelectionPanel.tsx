@@ -6,27 +6,17 @@ import { AnimatePresence, motion } from "motion/react";
 import { useUniverse } from "./UniverseProvider";
 
 /**
- * What is selected, as type rather than as a card.
+ * A compact index for the selected film.
  *
- * The previous version was a bordered, blurred, rounded rectangle with a
- * poster in it — a conventional website component sitting on top of a
- * visualisation, competing with it. This is the same information set as
- * unadorned text against the scrim: no border, no panel background, no box.
- *
- * It can afford to be this light because the poster and the title are now in
- * the scene, attached to the film itself. The composition happens in the
- * universe; this is only the set of actions that go with it.
- *
- * It deliberately does not repeat the title. On a narrow viewport the repeated
- * title collided with the in-scene one, which was the clearest possible sign
- * it was redundant at every width.
- *
- * Bottom sheet on mobile, right rail on desktop.
+ * The poster remains in the scene, while this rail gives the selection a
+ * stable name and exposes the two useful next moves: open it or travel to a
+ * neighbour. The pane itself ignores pointer events; only its controls capture
+ * them, so films behind its empty space remain selectable.
  */
 const EASE = [0.22, 0.61, 0.36, 1] as const;
 
 export function SelectionPanel() {
-  const { selectedId, byId, flyTo, select } = useUniverse();
+  const { selectedId, byId, flyTo } = useUniverse();
   const node = selectedId === null ? null : byId.get(selectedId);
 
   return (
@@ -38,33 +28,40 @@ export function SelectionPanel() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 6 }}
           transition={{ duration: 0.4, ease: EASE }}
-          className="pointer-events-none fixed inset-x-5 bottom-24 text-left md:static md:inset-auto md:w-[15rem] md:text-right"
+          className="void-panel pointer-events-none fixed inset-x-3 bottom-16 overflow-hidden text-left sm:inset-x-4 md:inset-x-auto md:right-5 md:bottom-20 md:w-[20rem]"
         >
-          {/* A ground for the sheet, on mobile only.
-              On a phone the panel sits over the middle of the map rather than
-              beside it, so without this its text competes with the film labels
-              behind it. A gradient rather than a filled card — the sheet should
-              feel like the universe darkening under it, not a box on top. */}
-          <div
-            className="pointer-events-none absolute -inset-x-5 -bottom-24 -top-8 -z-10 md:hidden"
-            style={{
-              background:
-                "linear-gradient(to top, rgb(var(--bg-rgb)) 30%, rgb(var(--bg-rgb) / 0.85) 60%, rgb(var(--bg-rgb) / 0))",
-            }}
-            aria-hidden
-          />
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--hairline)] px-4 py-3.5">
+            <div className="min-w-0">
+              <span className="text-accent text-[0.5625rem] tracking-[0.15em] uppercase">
+                In focus
+              </span>
+              <h2 className="font-display text-ink mt-1 truncate text-[1.45rem] leading-none">
+                {node.t}
+              </h2>
+            </div>
+            {node.y && <span className="meta shrink-0">{node.y}</span>}
+          </div>
+
           <Link
             href={`/movie/${node.id}`}
-            className="text-accent pointer-events-auto inline-block text-[0.6875rem] tracking-[0.16em] uppercase transition-opacity hover:opacity-70"
+            className="text-ink hover:bg-[rgb(var(--text-rgb)/0.06)] pointer-events-auto flex min-h-12 items-center justify-between border-b border-[var(--hairline)] px-4 text-[0.6875rem] tracking-[0.14em] uppercase transition-colors"
           >
-            Enter film →
+            <span>Open film</span>
+            <span className="text-accent" aria-hidden>↗</span>
           </Link>
 
           {node.n.length > 0 && (
-            <div className="mt-5">
-              <span className="eyebrow">Nearby</span>
-              <ul className="mt-2 flex flex-col gap-1">
-                {node.n.slice(0, 4).map((id) => {
+            <div>
+              <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
+                <span className="text-muted text-[0.5625rem] tracking-[0.14em] uppercase">
+                  Nearby in the map
+                </span>
+                <span className="text-muted/60 text-[0.5625rem]">
+                  {String(Math.min(node.n.length, 4)).padStart(2, "0")}
+                </span>
+              </div>
+              <ul>
+                {node.n.slice(0, 4).map((id, index) => {
                   const neighbour = byId.get(id);
                   if (!neighbour) return null;
                   return (
@@ -72,12 +69,13 @@ export function SelectionPanel() {
                       <button
                         type="button"
                         onClick={() => flyTo(id)}
-                        // Alignment has to follow the panel's own responsive
-                        // switch, or the headings sit left while the list sits
-                        // right.
-                        className="text-muted hover:text-ink pointer-events-auto w-full truncate text-left text-[0.8125rem] transition-colors md:text-right"
+                        className="text-muted hover:text-ink hover:bg-[rgb(var(--text-rgb)/0.05)] pointer-events-auto flex min-h-9 w-full items-center gap-3 px-4 text-left text-[0.75rem] transition-colors"
                       >
-                        {neighbour.t}
+                        <span className="text-muted/50 shrink-0 text-[0.5625rem] tabular-nums">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{neighbour.t}</span>
+                        <span className="text-muted/50" aria-hidden>→</span>
                       </button>
                     </li>
                   );
@@ -86,13 +84,9 @@ export function SelectionPanel() {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => select(null)}
-            className="text-muted/60 hover:text-ink pointer-events-auto mt-5 text-[0.5625rem] tracking-[0.16em] uppercase transition-colors"
-          >
-            Dismiss
-          </button>
+          <p className="text-muted/60 border-t border-[var(--hairline)] px-4 py-2.5 text-[0.5625rem] tracking-[0.08em] uppercase">
+            Tap any other film to change focus
+          </p>
         </motion.aside>
       )}
     </AnimatePresence>
